@@ -28,8 +28,10 @@ import model as model_lib
 import objective as obj_lib
 import tensorflow.compat.v2 as tf
 import tensorflow_datasets as tfds
-
-
+import tensorflow
+from gensim.models.keyedvectors import KeyedVectors
+from keras.applications.imagenet_utils import decode_predictions
+import numpy as np
 
 FLAGS = flags.FLAGS
 
@@ -463,11 +465,44 @@ def _restore_latest_or_from_pretrain(checkpoint_manager):
         x.assign(tf.zeros_like(x))
 
 
+def get_names():
+    #ILSVRC words
+    words = [i[0][1] for i in decode_predictions(np.eye(1000),top=1)]
+    data1=[d.replace(" ","_").replace("-","_").replace('grey','gray').lower() for d in words]
+    data1[data1.index('bicycle_built_for_two')]='tandem'
+    data1[data1.index('banded_gecko')]='gecko'
+    data1[data1.index("jack_o'_lantern")]='jack_o_lantern'
+    data1[data1.index('black_and_gold_garden_spider')]='garden_spider'
+    data1[data1.index('polaroid_camera')]='polaroid'
+    data1[data1.index('hen_of_the_woods')]='hen_of_woods'
+    data1[data1.index('soft_coated_wheaten_terrier')]='terrier'
+    data1[data1.index('black_and_tan_coonhound')]='coonhound'
+    data1[data1.index('west_highland_white_terrier')]='terrier'
+    data1[data1.index('greater_swiss_mountain_dog')]='bernese_mountain_dog'
+    data1[data1.index('german_short_haired_pointer')]='pointer'
+    data1[data1.index('wire_haired_fox_terrier')]='terrier'
+    data1[data1.index('italian_grayhound')]='italian_greyhound'
+    return list(set(data1+['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']))
 def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-
+  embed_model = KeyedVectors.load_word2vec_format("~/Workspace/simclr/numberbatch-en.txt", binary=False)
+  data1=get_names()
+  vectors = [embed_model[i] for i in data1]
+  # embed_table=tf.lookup.StaticHashTable(
+  #     initializer=tf.lookup.KeyValueTensorInitializer(
+  #         tf.constant(data1), 
+  #         tf.convert_to_tensor(np.array(vectors))
+  #         ), 
+  #     default_value=tf.constant(1.))
+  embed_table=tf.lookup.experimental.DenseHashTable(key_dtype=tf.string, 
+                                                    value_dtype=tf.float32, 
+                                                    default_value=-tf.ones(len(vectors[0])), 
+                                                    empty_key='', 
+                                                    deleted_key='$')
+  embed_table.insert(keys=tf.constant(data1),
+                     values=tf.convert_to_tensor(np.array(vectors)))
   builder = tfds.builder(FLAGS.dataset, data_dir=FLAGS.data_dir)
   builder.download_and_prepare()
   num_train_examples = builder.info.splits[FLAGS.train_split].num_examples
@@ -579,11 +614,22 @@ def main(argv):
         loss = None
         if projection_head_outputs is not None:
           outputs = projection_head_outputs
-          con_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
-              outputs,
-              hidden_norm=FLAGS.hidden_norm,
-              temperature=FLAGS.temperature,
-              strategy=strategy)
+          if True:
+              l = labels['labels']
+              con_loss, logits_con, labels_con = obj_lib.add_CNNB_loss(
+                  l,
+                  outputs,
+                  embed_table,
+                  dataset=FLAGS.dataset,
+                  hidden_norm=FLAGS.hidden_norm,
+                  temperature=FLAGS.temperature,
+                  strategy=strategy)
+          else:
+              con_loss, logits_con, labels_con = obj_lib.add_contrastive_loss(
+                  outputs,
+                  hidden_norm=FLAGS.hidden_norm,
+                  temperature=FLAGS.temperature,
+                  strategy=strategy)
           if loss is None:
             loss = con_loss
           else:

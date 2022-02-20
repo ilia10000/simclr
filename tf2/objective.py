@@ -18,6 +18,9 @@
 from absl import flags
 
 import tensorflow.compat.v2 as tf
+from keras.applications.imagenet_utils import decode_predictions
+import numpy as np
+import tensorflow
 
 FLAGS = flags.FLAGS
 
@@ -82,6 +85,120 @@ def add_contrastive_loss(hidden,
 
   loss_a = tf.nn.softmax_cross_entropy_with_logits(
       labels, tf.concat([logits_ab, logits_aa], 1))
+  loss_b = tf.nn.softmax_cross_entropy_with_logits(
+      labels, tf.concat([logits_ba, logits_bb], 1))
+  loss = tf.reduce_mean(loss_a + loss_b)
+
+  return loss, logits_ab, labels
+
+    
+#TODO: decide if this function should use tf ops or keep numpy ops
+def names2sims(names, embed_model, dataset='imagenet2012'):       
+    def get_sims_outer(x):
+        def get_sims_inner(y):
+            ex=embed_model.lookup(x)
+            ey=embed_model.lookup(y)
+            return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
+        return tf.map_fn(get_sims_inner,names, fn_output_signature=tf.float32)
+    sim_mat=tf.map_fn(get_sims_outer, names,fn_output_signature=tf.float32)
+    return sim_mat
+
+def get_names(pred):
+    label_dict = {0:'airplane', 1:'automobile', 2:'bird', 3:'cat', 4:'deer', 5:'dog', 6:'frog', 7:'horse', 8:'ship', 9:'truck'}
+    table=tf.lookup.StaticHashTable(
+        initializer=tf.lookup.KeyValueTensorInitializer(
+            tf.constant(list(label_dict.keys()), dtype=tf.int64), 
+            tf.convert_to_tensor(list(label_dict.values()))), 
+        default_value=tf.constant(''))
+    return table.lookup(tf.argmax(pred))
+def get_batch_sims(labels, embed_model, dataset='imagenet2012', method="simclr"):
+    '''
+    Args:
+        labels: vector of one-hot labels with shape (bsz, num_classes).
+    
+    Returns:
+        Similarity matrix of shape (bsz,bsz).
+        
+    '''
+    #Get label names
+    if dataset=='imagenet2012':
+        label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
+    elif dataset=='cifar10':
+        label_names= tf.map_fn(get_names, labels, fn_output_signature=tf.string)
+    #Load CNNB similarity dict
+    sims = names2sims(label_names, embed_model, dataset)
+    sims = tf.convert_to_tensor(sims)
+    return sims
+
+def add_CNNB_loss(true_labels, 
+                 hidden,
+                 embed_model,
+                         dataset='imagenet2012',
+                         hidden_norm=True,
+                         temperature=1.0,
+                         strategy=None):
+  """Compute loss for model.
+
+  Args:
+    true_labels: vector of labels.
+    hidden: hidden vector (`Tensor`) of shape (bsz, dim).
+    hidden_norm: whether or not to use normalization on the hidden vector.
+    temperature: a `floating` number for temperature scaling.
+    strategy: context information for tpu.
+
+  Returns:
+    A loss scalar.
+    The logits for contrastive prediction task.
+    The labels for contrastive prediction task.
+  """
+  # Get (normalized) hidden1 and hidden2.
+  if hidden_norm:
+    hidden = tf.math.l2_normalize(hidden, -1)
+  hidden1, hidden2 = tf.split(hidden, 2, 0)
+  batch_size = tf.shape(hidden1)[0]
+  sims=get_batch_sims(true_labels, embed_model, dataset)
+  # Gather hidden1/hidden2 across replicas and create local labels.
+  if strategy is not None:
+    hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
+    hidden2_large = tpu_cross_replica_concat(hidden2, strategy)
+    enlarged_batch_size = tf.shape(hidden1_large)[0]
+    # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
+    replica_context = tf.distribute.get_replica_context()
+    reps = strategy.num_replicas_in_sync
+    replica_id = tf.cast(
+        tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
+    labels_idx = tf.range(batch_size) + replica_id * batch_size
+    labels1=tf.concat([sims if i==replica_id else tf.zeros(sims.shape) for i in range(reps)],1)
+    labels2=tf.concat([sims-tf.linalg.diag(tf.linalg.diag_part(sims)) if i==replica_id else tf.zeros(sims.shape) for i in range(reps)],1)
+    labels=tf.concat([labels1,labels2],1)
+    masks = tf.one_hot(labels_idx, enlarged_batch_size)
+  else:
+    hidden1_large = hidden1
+    hidden2_large = hidden2
+    labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
+    masks = tf.one_hot(tf.range(batch_size), batch_size)
+
+  #Calculate similarity between hidden representations from aug1 and from aug1
+  logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
+  #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+  logits_aa = logits_aa - masks * LARGE_NUM
+  #Calculate similarity between hidden representations from aug2 and from aug2
+  logits_bb = tf.matmul(hidden2, hidden2_large, transpose_b=True) / temperature
+  #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+  logits_bb = logits_bb - masks * LARGE_NUM
+  #Calculate similarity between hidden representations from aug1 and from aug2
+  logits_ab = tf.matmul(hidden1, hidden2_large, transpose_b=True) / temperature
+  #Calculate similarity between hidden representations from aug2 and from aug1 
+  #-> identical to above case if using single GPU
+  logits_ba = tf.matmul(hidden2, hidden1_large, transpose_b=True) / temperature
+  #Calculate loss for aug1 samples by taking softmax over logits and then applying cross_entropy
+  loss_a = tf.nn.softmax_cross_entropy_with_logits(
+      #The identity part of labels (left-side) compares against sim(aug1,aug2); 
+      #Zeros (right-side) compare against masked sim(aug1,aug1)
+      labels, 
+      #Horizontally concatenate sim(aug1, aug2) with sim(aug1,aug1)
+      tf.concat([logits_ab, logits_aa], 1))
+  #Take symmetrical loss for aug2 samples
   loss_b = tf.nn.softmax_cross_entropy_with_logits(
       labels, tf.concat([logits_ba, logits_bb], 1))
   loss = tf.reduce_mean(loss_a + loss_b)
