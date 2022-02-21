@@ -503,6 +503,7 @@ def main(argv):
                                                     deleted_key='$')
   embed_table.insert(keys=tf.constant(data1),
                      values=tf.convert_to_tensor(np.array(vectors)))
+  del embed_model
   builder = tfds.builder(FLAGS.dataset, data_dir=FLAGS.data_dir)
   builder.download_and_prepare()
   num_train_examples = builder.info.splits[FLAGS.train_split].num_examples
