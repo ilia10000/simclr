@@ -104,11 +104,11 @@ def add_contrastive_loss(hidden,
 
     
 #TODO: precompute sims at start of run, also use tensor operations instead of scalat
-def names2sims(names, embed_model, dataset='imagenet2012'):
+def names2sims(names, embed_model, bsz, dataset='imagenet2012'):
     embeds = embed_model.lookup(names)   
     norm_embeds = tf.nn.l2_normalize(embeds,1)    
     sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
-    sim_mat.set_shape([512,512])
+    sim_mat.set_shape([bsz,bsz])
     # def get_sims_outer(x):
     #     def get_sims_inner(y):
     #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
@@ -124,7 +124,7 @@ def get_names(pred):
             tf.convert_to_tensor(list(label_dict.values()))), 
         default_value=tf.constant(''))
     return table.lookup(tf.argmax(pred))
-def get_batch_sims(labels, embed_model, dataset='imagenet2012', method="simclr"):
+def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="simclr"):
     '''
     Args:
         labels: vector of one-hot labels with shape (bsz, num_classes).
@@ -140,7 +140,7 @@ def get_batch_sims(labels, embed_model, dataset='imagenet2012', method="simclr")
         label_names= tf.map_fn(get_names, labels, fn_output_signature=tf.string)
     #Load CNNB similarity dict
     #sims = tf.matmul(labels,labels, transpose_b=True)#
-    sims=names2sims(label_names, embed_model, dataset)
+    sims=names2sims(label_names, embed_model, bsz, dataset)
     #sims = tf.convert_to_tensor(sims)
     return sims
 
@@ -170,7 +170,7 @@ def add_CNNB_loss(true_labels,
     hidden = tf.math.l2_normalize(hidden, -1)
   hidden1, hidden2 = tf.split(hidden, 2, 0)
   batch_size = tf.shape(hidden1)[0]
-  sims=get_batch_sims(true_labels, embed_model, dataset)
+  sims=get_batch_sims(true_labels, embed_model, batch_size, dataset)
   # Gather hidden1/hidden2 across replicas and create local labels.
   if strategy is not None:
     hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
