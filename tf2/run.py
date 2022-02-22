@@ -627,7 +627,7 @@ def main(argv):
                   l,
                   outputs,
                   embed_table,
-                  bsz=FLAGS.train_batch_size,
+                  bsz=FLAGS.train_batch_size, #TODO: Make this dynamic
                   dataset=FLAGS.dataset,
                   hidden_norm=FLAGS.hidden_norm,
                   temperature=FLAGS.temperature,

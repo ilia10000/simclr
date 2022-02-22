@@ -186,7 +186,7 @@ def add_CNNB_loss(true_labels,
     hidden = tf.math.l2_normalize(hidden, -1)
   hidden1, hidden2 = tf.split(hidden, 2, 0)
   batch_size = tf.shape(hidden1)[0]
-  sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
+  
   # Gather hidden1/hidden2 across replicas and create local labels.
   if strategy is not None:
     hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
@@ -195,6 +195,7 @@ def add_CNNB_loss(true_labels,
     # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
     replica_context = tf.distribute.get_replica_context()
     reps = strategy.num_replicas_in_sync
+    sims=get_batch_sims(true_labels, embed_model, bsz//reps, dataset)
     #sims.set_shape([512//reps, 512//reps])
     replica_id = tf.cast(
         tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
@@ -205,6 +206,7 @@ def add_CNNB_loss(true_labels,
     masks = tf.one_hot(labels_idx, enlarged_batch_size)
   else:
     #sims.set_shape([batch_size, batch_size])
+    sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
     hidden1_large = hidden1
     hidden2_large = hidden2
     labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
