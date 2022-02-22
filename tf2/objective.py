@@ -145,7 +145,7 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
         Similarity matrix of shape (bsz,bsz).
         
     '''
-    ids = np.argmax(labels)
+    ids = tf.argmax(labels)
     sims = ids2sims(ids, embed_model, bsz)
     #Get label names
     # if dataset=='imagenet2012':

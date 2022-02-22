@@ -505,9 +505,9 @@ def main(argv):
   embed_table=tf.lookup.experimental.DenseHashTable(key_dtype=tf.int64, 
                                                     value_dtype=tf.float32, 
                                                     default_value=-tf.ones(len(vectors[0])), 
-                                                    empty_key='', 
-                                                    deleted_key='$')
-  embed_table.insert(keys=tf.constant(word_dict.keys()),
+                                                    empty_key=-1, 
+                                                    deleted_key=-2)
+  embed_table.insert(keys=tf.constant(list(word_dict.keys()),dtype=tf.int64),
                      values=tf.convert_to_tensor(np.array(vectors)))
   del embed_model
   builder = tfds.builder(FLAGS.dataset, data_dir=FLAGS.data_dir)
