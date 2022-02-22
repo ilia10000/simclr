@@ -76,9 +76,9 @@ def add_contrastive_loss(hidden,
     hidden2_large = hidden2
     labels = tf.one_hot(tf.range(batch_size), batch_size * 2)
     masks = tf.one_hot(tf.range(batch_size), batch_size)
-  labels = tf.one_hot(tf.range(batch_size), batch_size)
-  labels=labels*0.9 +(1-0.9)*(1-labels)
-  labels=tf.concat([labels, labels-tf.linalg.diag(tf.linalg.diag_part(labels))],1)
+  # labels = tf.one_hot(tf.range(batch_size), batch_size)
+  # labels=labels*0.9 +(1-0.9)*(1-labels)
+  # labels=tf.concat([labels, labels-tf.linalg.diag(tf.linalg.diag_part(labels))],1)
   logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
   tf.print(logits_aa)
   logits_aa = logits_aa - masks * LARGE_NUM
@@ -187,7 +187,7 @@ def add_CNNB_loss(true_labels,
   batch_size = tf.shape(hidden1)[0]
   sims=get_batch_sims(true_labels, embed_model, batch_size, dataset)
   # Gather hidden1/hidden2 across replicas and create local labels.
-  if False and strategy is not None:
+  if strategy is not None:
     hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
     hidden2_large = tpu_cross_replica_concat(hidden2, strategy)
     enlarged_batch_size = tf.shape(hidden1_large)[0]
