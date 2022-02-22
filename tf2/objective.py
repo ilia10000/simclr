@@ -18,7 +18,7 @@
 from absl import flags
 
 import tensorflow.compat.v2 as tf
-#from keras.applications.imagenet_utils import decode_predictions
+# from keras.applications.imagenet_utils import decode_predictions
 import numpy as np
 import tensorflow
 from tensorflow.compat.v2.keras.losses import KLDivergence
@@ -116,6 +116,18 @@ def names2sims(names, embed_model, bsz, dataset='imagenet2012'):
     # sim_mat=tf.map_fn(get_sims_outer, names,fn_output_signature=tf.float32)
     return tf.math.square(sim_mat)
 
+def ids2sims(ids, embed_model, bsz):
+    embeds = embed_model.lookup(ids)   
+    norm_embeds = tf.nn.l2_normalize(embeds,1)    
+    sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
+    #sim_mat.set_shape([bsz,bsz])
+    # def get_sims_outer(x):
+    #     def get_sims_inner(y):
+    #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
+    #     return tf.map_fn(get_sims_inner,names, fn_output_signature=tf.float32)
+    # sim_mat=tf.map_fn(get_sims_outer, names,fn_output_signature=tf.float32)
+    return tf.math.square(sim_mat)
+
 def get_names(pred):
     label_dict = {0:'airplane', 1:'automobile', 2:'bird', 3:'cat', 4:'deer', 5:'dog', 6:'frog', 7:'horse', 8:'ship', 9:'truck'}
     table=tf.lookup.StaticHashTable(
@@ -133,14 +145,17 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
         Similarity matrix of shape (bsz,bsz).
         
     '''
+    ids = np.argmax(labels)
+    sims = ids2sims(ids, embed_model, bsz)
     #Get label names
-    if dataset=='imagenet2012':
-        pass#label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
-    elif dataset=='cifar10':
-        label_names= tf.map_fn(get_names, labels, fn_output_signature=tf.string)
+    # if dataset=='imagenet2012':
+    #     label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
+    # elif dataset=='cifar10':
+    #     label_names= tf.map_fn(get_names, labels, fn_output_signature=tf.string)
+    # sims=names2sims(label_names, embed_model, bsz, dataset)
     #Load CNNB similarity dict
     #sims = tf.matmul(labels,labels, transpose_b=True)#
-    sims=names2sims(label_names, embed_model, bsz, dataset)
+    
     #sims = tf.convert_to_tensor(sims)
     return sims
 
