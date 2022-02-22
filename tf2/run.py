@@ -468,7 +468,7 @@ def _restore_latest_or_from_pretrain(checkpoint_manager):
 def get_names():
     #ILSVRC words
     if FLAGS.dataset=='imagenet2012':
-        word_dict = np.load('ilsvrc_dict.py')
+        word_dict = np.load('ilsvrc_dict.npy', allow_pickle=True)
         # words = [i[0][1] for i in decode_predictions(np.eye(1000),top=1)]
         # data1=[d.replace(" ","_").replace("-","_").replace('grey','gray').lower() for d in words]
         # data1[data1.index('bicycle_built_for_two')]='tandem'
@@ -484,7 +484,7 @@ def get_names():
         # data1[data1.index('german_short_haired_pointer')]='pointer'
         # data1[data1.index('wire_haired_fox_terrier')]='terrier'
         # data1[data1.index('italian_grayhound')]='italian_greyhound'
-    elif FLAGS.dataset=='CIFAR10':
+    elif FLAGS.dataset=='cifar10':
         word_dict={0:'airplane', 1:'automobile', 2:'bird', 3:'cat', 4:'deer', 5:'dog', 6:'frog', 7:'horse', 8:'ship', 9:'truck'}
 
     
@@ -502,7 +502,7 @@ def main(argv):
   #         tf.convert_to_tensor(np.array(vectors))
   #         ), 
   #     default_value=tf.constant(1.))
-  embed_table=tf.lookup.experimental.DenseHashTable(key_dtype=tf.string, 
+  embed_table=tf.lookup.experimental.DenseHashTable(key_dtype=tf.int64, 
                                                     value_dtype=tf.float32, 
                                                     default_value=-tf.ones(len(vectors[0])), 
                                                     empty_key='', 
