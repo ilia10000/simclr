@@ -18,7 +18,7 @@
 from absl import flags
 
 import tensorflow.compat.v2 as tf
-from keras.applications.imagenet_utils import decode_predictions
+#from keras.applications.imagenet_utils import decode_predictions
 import numpy as np
 import tensorflow
 from tensorflow.compat.v2.keras.losses import KLDivergence
@@ -135,7 +135,7 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
     '''
     #Get label names
     if dataset=='imagenet2012':
-        label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
+        pass#label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
     elif dataset=='cifar10':
         label_names= tf.map_fn(get_names, labels, fn_output_signature=tf.string)
     #Load CNNB similarity dict
