@@ -627,6 +627,7 @@ def main(argv):
                   l,
                   outputs,
                   embed_table,
+                  bsz=FLAGS.train_batch_size,
                   dataset=FLAGS.dataset,
                   hidden_norm=FLAGS.hidden_norm,
                   temperature=FLAGS.temperature,

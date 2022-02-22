@@ -120,7 +120,7 @@ def ids2sims(ids, embed_model, bsz):
     embeds = embed_model.lookup(ids)   
     norm_embeds = tf.nn.l2_normalize(embeds,1)    
     sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
-    sim_mat.set_shape([None,None])
+    sim_mat.set_shape([bsz,bsz])
     # def get_sims_outer(x):
     #     def get_sims_inner(y):
     #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
@@ -162,6 +162,7 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
 def add_CNNB_loss(true_labels, 
                  hidden,
                  embed_model,
+                 bsz=512,
                          dataset='imagenet2012',
                          hidden_norm=True,
                          temperature=1.0,
@@ -185,7 +186,7 @@ def add_CNNB_loss(true_labels,
     hidden = tf.math.l2_normalize(hidden, -1)
   hidden1, hidden2 = tf.split(hidden, 2, 0)
   batch_size = tf.shape(hidden1)[0]
-  sims=get_batch_sims(true_labels, embed_model, batch_size, dataset)
+  sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
   # Gather hidden1/hidden2 across replicas and create local labels.
   if strategy is not None:
     hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
