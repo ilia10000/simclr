@@ -120,7 +120,7 @@ def ids2sims(ids, embed_model, bsz):
     embeds = embed_model.lookup(ids)   
     norm_embeds = tf.nn.l2_normalize(embeds,1)    
     sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
-    #sim_mat.set_shape([bsz,bsz])
+    sim_mat.set_shape([None,None])
     # def get_sims_outer(x):
     #     def get_sims_inner(y):
     #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
@@ -145,7 +145,7 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
         Similarity matrix of shape (bsz,bsz).
         
     '''
-    ids = tf.argmax(labels)
+    ids = tf.argmax(labels,1)
     sims = ids2sims(ids, embed_model, bsz)
     #Get label names
     # if dataset=='imagenet2012':
@@ -187,14 +187,14 @@ def add_CNNB_loss(true_labels,
   batch_size = tf.shape(hidden1)[0]
   sims=get_batch_sims(true_labels, embed_model, batch_size, dataset)
   # Gather hidden1/hidden2 across replicas and create local labels.
-  if strategy is not None:
+  if False and strategy is not None:
     hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
     hidden2_large = tpu_cross_replica_concat(hidden2, strategy)
     enlarged_batch_size = tf.shape(hidden1_large)[0]
     # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
     replica_context = tf.distribute.get_replica_context()
     reps = strategy.num_replicas_in_sync
-    sims.set_shape([512//reps, 512//reps])
+    #sims.set_shape([512//reps, 512//reps])
     replica_id = tf.cast(
         tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
     labels_idx = tf.range(batch_size) + replica_id * batch_size
@@ -203,6 +203,7 @@ def add_CNNB_loss(true_labels,
     labels=tf.concat([labels1,labels2],1)
     masks = tf.one_hot(labels_idx, enlarged_batch_size)
   else:
+    #sims.set_shape([batch_size, batch_size])
     hidden1_large = hidden1
     hidden2_large = hidden2
     labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
