@@ -108,7 +108,7 @@ def names2sims(names, embed_model, bsz, dataset='imagenet2012'):
     embeds = embed_model.lookup(names)   
     norm_embeds = tf.nn.l2_normalize(embeds,1)    
     sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
-    sim_mat.set_shape([bsz,bsz])
+    #sim_mat.set_shape([bsz,bsz])
     # def get_sims_outer(x):
     #     def get_sims_inner(y):
     #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
@@ -179,6 +179,7 @@ def add_CNNB_loss(true_labels,
     # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
     replica_context = tf.distribute.get_replica_context()
     reps = strategy.num_replicas_in_sync
+    sims.set_shape([512//reps, 512//reps])
     replica_id = tf.cast(
         tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
     labels_idx = tf.range(batch_size) + replica_id * batch_size
