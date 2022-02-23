@@ -166,7 +166,8 @@ def add_CNNB_loss(true_labels,
                          dataset='imagenet2012',
                          hidden_norm=True,
                          temperature=1.0,
-                         strategy=None):
+                         strategy=None, 
+                         loss_type='klsoft'):
   """Compute loss for model.
 
   Args:
@@ -216,19 +217,24 @@ def add_CNNB_loss(true_labels,
   logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
   # tf.print(true_labels)
   # tf.print(logits_aa)
-  #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
-  logits_aa = logits_aa - masks * LARGE_NUM
   #Calculate similarity between hidden representations from aug2 and from aug2
   logits_bb = tf.matmul(hidden2, hidden2_large, transpose_b=True) / temperature
-  #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
-  logits_bb = logits_bb - masks * LARGE_NUM
+  if loss_type not in ['fro']:
+      #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+      logits_aa = logits_aa - masks * LARGE_NUM
+      #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+      logits_bb = logits_bb - masks * LARGE_NUM
+  else:
+      logits_aa = logits_aa - masks * logits_aa
+      logits_bb = logits_bb - masks * logits_bb
+
   #Calculate similarity between hidden representations from aug1 and from aug2
   logits_ab = tf.matmul(hidden1, hidden2_large, transpose_b=True) / temperature
   #Calculate similarity between hidden representations from aug2 and from aug1 
   #-> identical to above case if using single GPU
   logits_ba = tf.matmul(hidden2, hidden1_large, transpose_b=True) / temperature
   #Calculate loss for aug1 samples by taking softmax over logits and then applying cross_entropy
-  if False:
+  if loss_type=='ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
       loss_a = loss_fn(
           #The identity part of labels (left-side) compares against sim(aug1,aug2); 
@@ -239,12 +245,24 @@ def add_CNNB_loss(true_labels,
       #Take symmetrical loss for aug2 samples
       loss_b = loss_fn(
           labels, tf.concat([logits_ba, logits_bb], 1))
-  else:
+  elif loss_type=='kl': # Consider softmaxing labels here
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
       loss_a = loss_fn(
           labels, tf.concat([tf.nn.softmax(logits_ab), tf.nn.softmax(logits_aa)], 1))
       loss_b = loss_fn(
           labels, tf.concat([tf.nn.softmax(logits_ba), tf.nn.softmax(logits_bb)], 1))
+  elif loss_type=='klsoft': 
+      loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
+      loss_a = loss_fn(
+          tf.nn.softmax(labels), tf.nn.softmax(tf.concat([logits_ab, logits_aa], 1)))
+      loss_b = loss_fn(
+          tf.nn.softmax(labels), tf.nn.softmax(tf.concat([logits_ba, logits_bb], 1)))
+  elif loss_type=='fro': #Consider softmaxing labels here
+      loss_fn=tf.norm
+      loss_a = loss_fn(
+          labels-tf.concat([logits_ab, logits_aa], 1), ord='fro')
+      loss_b = loss_fn(
+          labels - tf.concat([logits_ba, logits_bb], 1), ord='fro')
   
   loss = tf.reduce_mean(loss_a + loss_b)
 
