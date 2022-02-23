@@ -468,7 +468,7 @@ def _restore_latest_or_from_pretrain(checkpoint_manager):
 def get_names():
     #ILSVRC words
     if FLAGS.dataset=='imagenet2012':
-        word_dict = np.load('ilsvrc_dict.npy', allow_pickle=True)
+        word_dict = np.load('ilsvrc_dict.npy', allow_pickle=True).item()
         # words = [i[0][1] for i in decode_predictions(np.eye(1000),top=1)]
         # data1=[d.replace(" ","_").replace("-","_").replace('grey','gray').lower() for d in words]
         # data1[data1.index('bicycle_built_for_two')]='tandem'
