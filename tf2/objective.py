@@ -167,7 +167,7 @@ def add_CNNB_loss(true_labels,
                          hidden_norm=True,
                          temperature=1.0,
                          strategy=None, 
-                         loss_type='klsoft'):
+                         loss_type='fro'):
   """Compute loss for model.
 
   Args:
@@ -260,9 +260,9 @@ def add_CNNB_loss(true_labels,
   elif loss_type=='fro': #Consider softmaxing labels here
       loss_fn=tf.norm
       loss_a = loss_fn(
-          labels-tf.concat([logits_ab, logits_aa], 1), ord='fro')
+          labels-tf.concat([logits_ab, logits_aa], 1), ord='fro', axis=(0,1))
       loss_b = loss_fn(
-          labels - tf.concat([logits_ba, logits_bb], 1), ord='fro')
+          labels - tf.concat([logits_ba, logits_bb], 1), ord='fro', axis=(0,1))
   
   loss = tf.reduce_mean(loss_a + loss_b)
 
