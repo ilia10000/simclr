@@ -362,18 +362,18 @@ def add_CNNB_loss_v2(true_labels,
       loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
   elif loss_type=='softmax-ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
-      labels=tf.nn.softmax(labels)
-      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+      slabels=tf.nn.softmax(labels)
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='kl': # Consider softmaxing labels here
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
       loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
       loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
   elif loss_type=='klsoft': 
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
-      labels=tf.nn.softmax(labels)
-      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+      slabels=tf.nn.softmax(labels)
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='fro': #Consider softmaxing labels here
       loss_fn=tf.norm
       loss_a = tf.reduce_mean(loss_fn(labels[0]-logits_ab, ord='fro', axis=(0,1))+loss_fn(labels[1]-logits_aa, ord='fro', axis=(0,1)))
