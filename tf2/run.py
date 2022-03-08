@@ -623,7 +623,7 @@ def main(argv):
           outputs = projection_head_outputs
           if True:
               l = labels['labels']
-              con_loss, logits_con, labels_con = obj_lib.add_CNNB_loss(
+              con_loss, logits_con, labels_con = obj_lib.add_CNNB_loss_v2(
                   l,
                   outputs,
                   embed_table,

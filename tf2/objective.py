@@ -77,16 +77,16 @@ def add_contrastive_loss(hidden,
     labels = tf.one_hot(tf.range(batch_size), batch_size * 2)
     masks = tf.one_hot(tf.range(batch_size), batch_size)
   # labels = tf.one_hot(tf.range(batch_size), batch_size)
-  # labels=labels*0.9 +(1-0.9)*(1-labels)
+  labels=labels*0.9 +(1-0.9)*(1-labels)/labels.shape[-1] #Label smoothing
   # labels=tf.concat([labels, labels-tf.linalg.diag(tf.linalg.diag_part(labels))],1)
   logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
-  tf.print(logits_aa)
+  #tf.print(logits_aa)
   logits_aa = logits_aa - masks * LARGE_NUM
   logits_bb = tf.matmul(hidden2, hidden2_large, transpose_b=True) / temperature
   logits_bb = logits_bb - masks * LARGE_NUM
   logits_ab = tf.matmul(hidden1, hidden2_large, transpose_b=True) / temperature
   logits_ba = tf.matmul(hidden2, hidden1_large, transpose_b=True) / temperature
-  if False:
+  if True:
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
       loss_a = loss_fn(
           labels, tf.concat([logits_ab, logits_aa], 1))
@@ -167,7 +167,7 @@ def add_CNNB_loss(true_labels,
                          hidden_norm=True,
                          temperature=1.0,
                          strategy=None, 
-                         loss_type='fro'):
+                         loss_type='softmax-ce'):
   """Compute loss for model.
 
   Args:
@@ -245,6 +245,17 @@ def add_CNNB_loss(true_labels,
       #Take symmetrical loss for aug2 samples
       loss_b = loss_fn(
           labels, tf.concat([logits_ba, logits_bb], 1))
+  elif loss_type=='softmax-ce':
+      loss_fn = tf.nn.softmax_cross_entropy_with_logits
+      loss_a = loss_fn(
+          #The identity part of labels (left-side) compares against sim(aug1,aug2); 
+          #Zeros (right-side) compare against masked sim(aug1,aug1)
+          tf.nn.softmax(labels), 
+          #Horizontally concatenate sim(aug1, aug2) with sim(aug1,aug1)
+          tf.concat([logits_ab, logits_aa], 1))
+      #Take symmetrical loss for aug2 samples
+      loss_b = loss_fn(
+          labels, tf.concat([logits_ba, logits_bb], 1))
   elif loss_type=='kl': # Consider softmaxing labels here
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
       loss_a = loss_fn(
@@ -263,6 +274,111 @@ def add_CNNB_loss(true_labels,
           labels-tf.concat([logits_ab, logits_aa], 1), ord='fro', axis=(0,1))
       loss_b = loss_fn(
           labels - tf.concat([logits_ba, logits_bb], 1), ord='fro', axis=(0,1))
+  
+  loss = tf.reduce_mean(loss_a + loss_b)
+
+  return loss, logits_ab, labels
+
+
+
+def add_CNNB_loss_v2(true_labels, 
+                 hidden,
+                 embed_model,
+                 bsz=512,
+                         dataset='imagenet2012',
+                         hidden_norm=True,
+                         temperature=1.0,
+                         strategy=None, 
+                         loss_type='softmax-ce'):
+  """Compute loss for model.
+
+  Args:
+    true_labels: vector of labels.
+    hidden: hidden vector (`Tensor`) of shape (bsz, dim).
+    hidden_norm: whether or not to use normalization on the hidden vector.
+    temperature: a `floating` number for temperature scaling.
+    strategy: context information for tpu.
+
+  Returns:
+    A loss scalar.
+    The logits for contrastive prediction task.
+    The labels for contrastive prediction task.
+  """
+  # Get (normalized) hidden1 and hidden2.
+  if hidden_norm:
+    hidden = tf.math.l2_normalize(hidden, -1)
+  hidden1, hidden2 = tf.split(hidden, 2, 0)
+  batch_size = tf.shape(hidden1)[0]
+  
+  # Gather hidden1/hidden2 across replicas and create local labels.
+  if strategy is not None:
+    hidden1_large = tpu_cross_replica_concat(hidden1, strategy)
+    hidden2_large = tpu_cross_replica_concat(hidden2, strategy)
+    enlarged_batch_size = tf.shape(hidden1_large)[0]
+    # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
+    replica_context = tf.distribute.get_replica_context()
+    reps = strategy.num_replicas_in_sync
+    sims=get_batch_sims(true_labels, embed_model, bsz//reps, dataset)
+    #sims.set_shape([512//reps, 512//reps])
+    replica_id = tf.cast(
+        tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
+    labels_idx = tf.range(batch_size) + replica_id * batch_size
+    labels1=tf.concat([sims if i==replica_id else tf.zeros(sims.shape) for i in range(reps)],1)
+    labels2=tf.concat([sims-tf.linalg.diag(tf.linalg.diag_part(sims)) if i==replica_id else tf.zeros(sims.shape) for i in range(reps)],1)
+    labels=tf.concat([labels1,labels2],1)
+    masks = tf.one_hot(labels_idx, enlarged_batch_size)
+  else:
+    #sims.set_shape([batch_size, batch_size])
+    sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
+    hidden1_large = hidden1
+    hidden2_large = hidden2
+    labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
+    masks = tf.one_hot(tf.range(batch_size), batch_size)
+  labels=tf.split(labels, 2, axis=1)
+  #Calculate similarity between hidden representations from aug1 and from aug1
+  logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
+  # tf.print(true_labels)
+  # tf.print(logits_aa)
+  #Calculate similarity between hidden representations from aug2 and from aug2
+  logits_bb = tf.matmul(hidden2, hidden2_large, transpose_b=True) / temperature
+  if loss_type not in ['fro']:
+      #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+      logits_aa = logits_aa - masks * LARGE_NUM
+      #Mask out entries corresponding to diagonal (self-similarity) so they are 0 once softmaxed
+      logits_bb = logits_bb - masks * LARGE_NUM
+  else:
+      logits_aa = logits_aa - masks * logits_aa
+      logits_bb = logits_bb - masks * logits_bb
+
+  #Calculate similarity between hidden representations from aug1 and from aug2
+  logits_ab = tf.matmul(hidden1, hidden2_large, transpose_b=True) / temperature
+  #Calculate similarity between hidden representations from aug2 and from aug1 
+  #-> identical to above case if using single GPU
+  logits_ba = tf.matmul(hidden2, hidden1_large, transpose_b=True) / temperature
+  #Calculate loss for aug1 samples by taking softmax over logits and then applying cross_entropy
+  if loss_type=='ce':
+      loss_fn = tf.nn.softmax_cross_entropy_with_logits
+      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+  elif loss_type=='softmax-ce':
+      loss_fn = tf.nn.softmax_cross_entropy_with_logits
+      labels=tf.nn.softmax(labels)
+      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+  elif loss_type=='kl': # Consider softmaxing labels here
+      loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
+      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+  elif loss_type=='klsoft': 
+      loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
+      labels=tf.nn.softmax(labels)
+      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+  elif loss_type=='fro': #Consider softmaxing labels here
+      loss_fn=tf.norm
+      loss_a = tf.reduce_mean(loss_fn(labels[0]-logits_ab, ord='fro', axis=(0,1))+loss_fn(labels[1]-logits_aa, ord='fro', axis=(0,1)))
+      loss_b = tf.reduce_mean(loss_fn(labels[0]-logits_ba, ord='fro', axis=(0,1))+loss_fn(labels[1]-logits_bb, ord='fro', axis=(0,1)))
+
   
   loss = tf.reduce_mean(loss_a + loss_b)
 
