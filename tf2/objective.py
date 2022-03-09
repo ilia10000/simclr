@@ -334,7 +334,7 @@ def add_CNNB_loss_v2(true_labels,
     hidden2_large = hidden2
     labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
     masks = tf.one_hot(tf.range(batch_size), batch_size)
-  labels=tf.split(labels, 2, axis=1)
+  slabels=tf.split(labels, 2, axis=1)
   #Calculate similarity between hidden representations from aug1 and from aug1
   logits_aa = tf.matmul(hidden1, hidden1_large, transpose_b=True) / temperature
   # tf.print(true_labels)
@@ -356,28 +356,34 @@ def add_CNNB_loss_v2(true_labels,
   #-> identical to above case if using single GPU
   logits_ba = tf.matmul(hidden2, hidden1_large, transpose_b=True) / temperature
   #Calculate loss for aug1 samples by taking softmax over logits and then applying cross_entropy
+  # tf.print(slabels[0].shape)
+  # tf.print(slabels[1].shape)
+  # tf.print(logits_ab.shape)
+  # tf.print(logits_aa.shape)
   if loss_type=='ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
-      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='softmax-ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
-      slabels=tf.nn.softmax(labels)
+      slabels[0]=tf.nn.softmax(slabels[0])
+      slabels[1]=tf.nn.softmax(slabels[1])
       loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
       loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='kl': # Consider softmaxing labels here
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
-      loss_a = tf.reduce_mean(loss_fn(labels[0],logits_ab)+loss_fn(labels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(labels[0],logits_ba)+loss_fn(labels[1],logits_bb))
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='klsoft': 
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
-      slabels=tf.nn.softmax(labels)
+      slabels[0]=tf.nn.softmax(slabels[0])
+      slabels[1]=tf.nn.softmax(slabels[1])
       loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
       loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='fro': #Consider softmaxing labels here
       loss_fn=tf.norm
-      loss_a = tf.reduce_mean(loss_fn(labels[0]-logits_ab, ord='fro', axis=(0,1))+loss_fn(labels[1]-logits_aa, ord='fro', axis=(0,1)))
-      loss_b = tf.reduce_mean(loss_fn(labels[0]-logits_ba, ord='fro', axis=(0,1))+loss_fn(labels[1]-logits_bb, ord='fro', axis=(0,1)))
+      loss_a = tf.reduce_mean(loss_fn(slabels[0]-logits_ab, ord='fro', axis=(0,1))+loss_fn(slabels[1]-logits_aa, ord='fro', axis=(0,1)))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0]-logits_ba, ord='fro', axis=(0,1))+loss_fn(slabels[1]-logits_bb, ord='fro', axis=(0,1)))
 
   
   loss = tf.reduce_mean(loss_a + loss_b)
