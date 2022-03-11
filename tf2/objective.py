@@ -289,7 +289,7 @@ def add_CNNB_loss_v2(true_labels,
                          hidden_norm=True,
                          temperature=1.0,
                          strategy=None, 
-                         loss_type='softmax-ce'):
+                         loss_type='klsoft'):
   """Compute loss for model.
 
   Args:
@@ -362,24 +362,24 @@ def add_CNNB_loss_v2(true_labels,
   # tf.print(logits_aa.shape)
   if loss_type=='ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
-      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1]-masks*slabels[1],logits_aa))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1]-masks*slabels[1],logits_bb))
   elif loss_type=='softmax-ce':
       loss_fn = tf.nn.softmax_cross_entropy_with_logits
       slabels[0]=tf.nn.softmax(slabels[0]/temperature)
-      slabels[1]=tf.nn.softmax((slabels[1]-masks*LARGE_NUM)/temperature)
+      slabels[1]=tf.nn.softmax((slabels[1]/temperature)-masks*LARGE_NUM)
       loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
       loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
   elif loss_type=='kl': # Consider softmaxing labels here
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
-      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],tf.nn.softmax(logits_ab))+loss_fn(slabels[1]-masks*slabels[1],tf.nn.softmax(logits_aa)))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],tf.nn.softmax(logits_ba))+loss_fn(slabels[1]-masks*slabels[1],tf.nn.softmax(logits_bb)))
   elif loss_type=='klsoft': 
       loss_fn = KLDivergence(tf.keras.losses.Reduction.NONE)
       slabels[0]=tf.nn.softmax(slabels[0]/temperature)
-      slabels[1]=tf.nn.softmax((slabels[1]-masks)/temperature)
-      loss_a = tf.reduce_mean(loss_fn(slabels[0],logits_ab)+loss_fn(slabels[1],logits_aa))
-      loss_b = tf.reduce_mean(loss_fn(slabels[0],logits_ba)+loss_fn(slabels[1],logits_bb))
+      slabels[1]=tf.nn.softmax((slabels[1]/temperature)-masks*LARGE_NUM)
+      loss_a = tf.reduce_mean(loss_fn(slabels[0],tf.nn.softmax(logits_ab))+loss_fn(slabels[1],tf.nn.softmax(logits_aa)))
+      loss_b = tf.reduce_mean(loss_fn(slabels[0],tf.nn.softmax(logits_ba))+loss_fn(slabels[1],tf.nn.softmax(logits_bb)))
   elif loss_type=='fro': #Consider softmaxing labels here
       loss_fn=tf.norm
       loss_a = tf.reduce_mean(loss_fn(slabels[0]-logits_ab, ord='fro', axis=(0,1))+loss_fn(slabels[1]-logits_aa, ord='fro', axis=(0,1)))
