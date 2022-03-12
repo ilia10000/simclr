@@ -126,7 +126,7 @@ def ids2sims(ids, embed_model, bsz):
     #         return tf.reduce_sum(tf.multiply(tf.nn.l2_normalize(ex,0),tf.nn.l2_normalize(ey,0)))
     #     return tf.map_fn(get_sims_inner,names, fn_output_signature=tf.float32)
     # sim_mat=tf.map_fn(get_sims_outer, names,fn_output_signature=tf.float32)
-    return tf.math.square(sim_mat)
+    return sim_mat
 
 def get_names(pred):
     label_dict = {0:'airplane', 1:'automobile', 2:'bird', 3:'cat', 4:'deer', 5:'dog', 6:'frog', 7:'horse', 8:'ship', 9:'truck'}
@@ -289,7 +289,8 @@ def add_CNNB_loss_v2(true_labels,
                          hidden_norm=True,
                          temperature=1.0,
                          strategy=None, 
-                         loss_type='klsoft'):
+                         loss_type='klsoft',
+                         clip_min=0.3):
   """Compute loss for model.
 
   Args:
@@ -319,6 +320,7 @@ def add_CNNB_loss_v2(true_labels,
     replica_context = tf.distribute.get_replica_context()
     reps = strategy.num_replicas_in_sync
     sims=get_batch_sims(true_labels, embed_model, bsz//reps, dataset)
+    sims=tf.cast(sims > clip_min, sims.dtype) * sims
     #sims.set_shape([512//reps, 512//reps])
     replica_id = tf.cast(
         tf.cast(replica_context.replica_id_in_sync_group, tf.uint32), tf.int32)
@@ -330,6 +332,7 @@ def add_CNNB_loss_v2(true_labels,
   else:
     #sims.set_shape([batch_size, batch_size])
     sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
+    sims=tf.cast(sims > clip_min, sims.dtype) * sims
     hidden1_large = hidden1
     hidden2_large = hidden2
     labels=tf.concat([sims,sims-tf.linalg.diag(tf.linalg.diag_part(sims))],1)
