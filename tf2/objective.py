@@ -116,10 +116,15 @@ def names2sims(names, embed_model, bsz, dataset='imagenet2012'):
     # sim_mat=tf.map_fn(get_sims_outer, names,fn_output_signature=tf.float32)
     return tf.math.square(sim_mat)
 
-def ids2sims(ids, embed_model, bsz):
-    embeds = embed_model.lookup(ids)   
-    norm_embeds = tf.nn.l2_normalize(embeds,1)    
-    sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
+def ids2sims(ids, embed_model, bsz, method='sim'):
+    if method=='sim':
+        embeds = embed_model.lookup(ids)   
+        norm_embeds = tf.nn.l2_normalize(embeds,1)
+        
+    elif method=='onehot':
+        norm_embeds = tf.one_hot(ids,tf.cast(tf.reduce_max(ids)+1,tf.int32))
+        sim_mat=tf.matmul(norm_embeds, norm_embeds, transpose_b=True)
+        sim_mat=sim_mat/tf.reduce_sum(sim_mat,1)
     sim_mat.set_shape([bsz,bsz])
     # def get_sims_outer(x):
     #     def get_sims_inner(y):
@@ -136,7 +141,7 @@ def get_names(pred):
             tf.convert_to_tensor(list(label_dict.values()))), 
         default_value=tf.constant(''))
     return table.lookup(tf.argmax(pred))
-def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="simclr"):
+def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim"): 
     '''
     Args:
         labels: vector of one-hot labels with shape (bsz, num_classes).
@@ -146,7 +151,7 @@ def get_batch_sims(labels, embed_model, bsz, dataset='imagenet2012', method="sim
         
     '''
     ids = tf.argmax(labels,1)
-    sims = ids2sims(ids, embed_model, bsz)
+    sims = ids2sims(ids, embed_model, bsz, method)
     #Get label names
     # if dataset=='imagenet2012':
     #     label_names = [i[0][1] for i in decode_predictions(labels, top=1)]
@@ -289,8 +294,9 @@ def add_CNNB_loss_v2(true_labels,
                          hidden_norm=True,
                          temperature=1.0,
                          strategy=None, 
-                         loss_type='klsoft',
-                         clip_min=0.3):
+                         loss_type='ce',
+                         clip_min=0, 
+                         method='onehot'):
   """Compute loss for model.
 
   Args:
@@ -319,7 +325,7 @@ def add_CNNB_loss_v2(true_labels,
     # TODO(iamtingchen): more elegant way to convert u32 to s32 for replica_id.
     replica_context = tf.distribute.get_replica_context()
     reps = strategy.num_replicas_in_sync
-    sims=get_batch_sims(true_labels, embed_model, bsz//reps, dataset)
+    sims=get_batch_sims(true_labels, embed_model, bsz//reps, dataset, method)
     sims=tf.cast(sims > clip_min, sims.dtype) * sims
     #sims.set_shape([512//reps, 512//reps])
     replica_id = tf.cast(
@@ -331,7 +337,7 @@ def add_CNNB_loss_v2(true_labels,
     masks = tf.one_hot(labels_idx, enlarged_batch_size)
   else:
     #sims.set_shape([batch_size, batch_size])
-    sims=get_batch_sims(true_labels, embed_model, bsz, dataset)
+    sims=get_batch_sims(true_labels, embed_model, bsz, dataset, method)
     sims=tf.cast(sims > clip_min, sims.dtype) * sims
     hidden1_large = hidden1
     hidden2_large = hidden2

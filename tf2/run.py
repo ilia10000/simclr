@@ -545,7 +545,7 @@ def main(argv):
 
   else:
     # For (multiple) GPUs.
-    strategy = tf.distribute.MirroredStrategy()
+    strategy = tf.distribute.MirroredStrategy() #Change to MultiWorkerMirroredStrategy for multi-node
     logging.info('Running using MirroredStrategy on %d replicas',
                  strategy.num_replicas_in_sync)
 
